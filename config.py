@@ -11,9 +11,9 @@ CAT_CHANNEL_ID: int = int(os.getenv("CAT_CHANNEL_ID", "0"))
 CAT_API_KEY: str = os.getenv("CAT_API_KEY", "")
 
 # ── Schedule times (24-hour format, UTC) ─────────────────
-MORNING_HOUR = 8    # 08:00 UTC
-AFTERNOON_HOUR = 14 # 14:00 UTC
-EVENING_HOUR = 20   # 20:00 UTC
+MORNING_HOUR = 5 - 11 + 24 
+AFTERNOON_HOUR = 12 - 11
+EVENING_HOUR = 20 - 11
 
 # ── API endpoints ────────────────────────────────────────
 CAT_GIF_URL = "https://api.thecatapi.com/v1/images/search"
