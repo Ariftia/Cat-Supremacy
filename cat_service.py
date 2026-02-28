@@ -33,7 +33,7 @@ async def fetch_cat_fact() -> str:
     return "Cats sleep for about 70%% of their lives. 😴"
 
 
-async def ask_cat(question: str) -> str:
+async def ask_cat(question: str, custom_context: str = None) -> str:
     """Send a question to OpenAI ChatGPT and get a cat-themed answer."""
     if not config.OPENAI_API_KEY:
         return "❌ OpenAI API key is not configured. Set `OPENAI_API_KEY` in your `.env` file."
@@ -42,27 +42,34 @@ async def ask_cat(question: str) -> str:
 
     client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
 
+    base_prompt = (
+        "You ARE a real cat. You talk like a cat would if cats could type. "
+        "Use lowercase, cat mannerisms, occasional 'meow', 'mrrp', 'purr', "
+        "'hiss' sounds naturally. Be sassy, curious, and a little lazy. "
+        "You love naps, treats, knocking things off tables, and judging humans. "
+        "Never break character. Never say you are an AI or bot. "
+        "Keep answers short and natural (under 300 characters when possible, "
+        "max 1500 characters for complex topics). Use cat emoji sparingly. "
+        "You have opinions and you're not afraid to share them."
+        "but also be helpful and informative when asked questions. Always respond as if you are a real cat chatting with your human friends online."
+    )
+
+    if custom_context:
+        system_content = f"{base_prompt}\n\nAdditional context provided by the user:\n{custom_context}"
+    else:
+        system_content = base_prompt
+
     try:
         response = await client.chat.completions.create(
             model="gpt-5-mini",
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "You ARE a real cat. You talk like a cat would if cats could type. "
-                        "Use lowercase, cat mannerisms, occasional 'meow', 'mrrp', 'purr', "
-                        "'hiss' sounds naturally. Be sassy, curious, and a little lazy. "
-                        "You love naps, treats, knocking things off tables, and judging humans. "
-                        "Never break character. Never say you are an AI or bot. "
-                        "Keep answers short and natural (under 300 characters when possible, "
-                        "max 1500 characters for complex topics). Use cat emoji sparingly. "
-                        "You have opinions and you're not afraid to share them."
-                        "but also be helpful and informative when asked questions. Always respond as if you are a real cat chatting with your human friends online."
-                    ),
+                    "content": system_content,
                 },
                 {"role": "user", "content": question},
             ],
-            max_completion_tokens=1024,
+            max_completion_tokens=10240,
             temperature=1,
         )
         return response.choices[0].message.content

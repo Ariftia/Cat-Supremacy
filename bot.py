@@ -5,6 +5,7 @@ Posts a cat GIF + cat fact every morning, afternoon, and evening.
 
 import discord
 from discord.ext import commands
+import re
 
 import config
 from scheduler import setup_scheduled_tasks, _build_scheduled_messages, _current_slot, TIME_OF_DAY
@@ -17,6 +18,10 @@ bot = commands.Bot(command_prefix=commands.when_mentioned, intents=intents)
 
 # Register the scheduled poster
 cat_poster = setup_scheduled_tasks(bot)
+
+# ── Per-server custom context store (in-memory) ─────────
+# Maps guild_id -> custom context string
+custom_contexts: dict[int, str] = {}
 
 
 # ── Events ───────────────────────────────────────────────
@@ -130,6 +135,38 @@ async def cat_image(ctx: commands.Context, *, prompt: str = None):
         await ctx.send(embed=embed)
 
 
+@bot.command(name="context")
+async def cat_context(ctx: commands.Context, *, content: str = None):
+    """Set, view, or clear custom context for AI responses (@cat context <text>)."""
+    guild_id = ctx.guild.id if ctx.guild else ctx.author.id
+
+    if content is None:
+        # Show current context
+        current = custom_contexts.get(guild_id)
+        if current:
+            await ctx.send(f"*flicks tail* current custom context:\n```\n{current[:1500]}\n```")
+        else:
+            await ctx.send("*yawns* no custom context set. use `@cat context <your text>` to add one~")
+        return
+
+    if content.lower() in ("clear", "reset", "remove", "none"):
+        custom_contexts.pop(guild_id, None)
+        await ctx.send("*knocks context off the table* custom context cleared! back to being just a cat~ 🐱")
+        return
+
+    # Check if there's a text file attachment
+    if ctx.message.attachments:
+        try:
+            file_content = (await ctx.message.attachments[0].read()).decode("utf-8")
+            content = f"{content}\n\n{file_content}" if content.strip() else file_content
+        except Exception:
+            await ctx.send("*hisses at file* couldn't read that attachment... text files only please!")
+            return
+
+    custom_contexts[guild_id] = content[:4000]  # Limit to 4000 chars
+    await ctx.send(f"*purrs* custom context set! ({len(content[:4000])} chars) i'll use this knowledge when answering~ 🐱")
+
+
 @bot.command(name="help_me")
 async def cat_help(ctx: commands.Context):
     """Show all available commands (@cat help_me)."""
@@ -143,6 +180,8 @@ async def cat_help(ctx: commands.Context):
     embed.add_field(name="@cat fact", value="Get a random cat fact", inline=False)
     embed.add_field(name="@cat search <topic>", value="Search the internet for news & journals", inline=False)
     embed.add_field(name="@cat image <description>", value="Generate an AI image", inline=False)
+    embed.add_field(name="@cat context <text>", value="Set custom knowledge for AI responses", inline=False)
+    embed.add_field(name="@cat context clear", value="Remove custom context", inline=False)
     embed.add_field(name="@cat <anything>", value="Just talk to me like a real cat!", inline=False)
     embed.add_field(name="@cat schedule", value="View the daily posting schedule", inline=False)
     embed.add_field(name="@cat help_me", value="Show this help message", inline=False)
@@ -164,10 +203,28 @@ async def on_command_error(ctx: commands.Context, error):
             await ctx.send("*stares at you blankly* ...meow? ask me someething! human 🐱")
             return
 
+        # Check for inline [context: ...] override
+        inline_context = None
+        context_match = re.search(r'\[context:\s*(.+?)\]', question, re.IGNORECASE | re.DOTALL)
+        if context_match:
+            inline_context = context_match.group(1).strip()
+            question = re.sub(r'\[context:\s*.+?\]', '', question, flags=re.IGNORECASE | re.DOTALL).strip()
+
+        # Combine inline context with server context
+        guild_id = ctx.guild.id if ctx.guild else ctx.author.id
+        server_context = custom_contexts.get(guild_id)
+        combined_context = None
+        if inline_context and server_context:
+            combined_context = f"{server_context}\n\nInline context: {inline_context}"
+        elif inline_context:
+            combined_context = inline_context
+        elif server_context:
+            combined_context = server_context
+
         from cat_service import ask_cat
 
         async with ctx.typing():
-            answer = await ask_cat(question)
+            answer = await ask_cat(question, custom_context=combined_context)
 
         await ctx.send(answer[:2000])
     else:
