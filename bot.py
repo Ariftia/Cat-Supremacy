@@ -15,6 +15,10 @@ from memory import (
     save_all as save_memories,
     prune_old_memories,
     extract_and_update_memories,
+    export_user_memory,
+    export_all_memories,
+    import_user_memory,
+    import_all_memories,
 )
 
 # ── Bot setup ────────────────────────────────────────────
@@ -199,7 +203,7 @@ async def cat_context(ctx: commands.Context, *, content: str = None):
 
 @bot.command(name="memory")
 async def cat_memory(ctx: commands.Context, *, action: str = None):
-    """View or clear what the bot remembers about you (@cat memory / @cat memory clear)."""
+    """View, clear, export, or import what the bot remembers about you."""
     print(f"[CMD] @cat memory triggered by {ctx.author} in #{getattr(ctx.channel, 'name', 'DM')}")
     user_id = ctx.author.id
     mem = get_user_memory(user_id, ctx.author.display_name)
@@ -212,6 +216,93 @@ async def cat_memory(ctx: commands.Context, *, action: str = None):
         print(f"[CMD] @cat memory cleared for user {ctx.author} (ID: {user_id})")
         return
 
+    # ── Export ───────────────────────────────────────────
+    if action and action.lower() == "export":
+        data = export_user_memory(user_id)
+        if data is None:
+            await ctx.send("*tilts head* nothing to export... talk to me first! 🐱")
+            print(f"[CMD] @cat memory export — no data for {ctx.author}")
+            return
+        import io
+        file = discord.File(
+            io.BytesIO(data.encode("utf-8")),
+            filename=f"cat_memory_{ctx.author.name}.json",
+        )
+        await ctx.send("*carefully packs memories into a box* here you go~ 📦🐱", file=file)
+        print(f"[CMD] @cat memory export completed for {ctx.author}")
+        return
+
+    if action and action.lower() == "export_all":
+        if not ctx.guild or not ctx.author.guild_permissions.administrator:
+            await ctx.send("*hisses* only server admins can export all memories! 🐱")
+            print(f"[CMD] @cat memory export_all denied for {ctx.author} — not admin")
+            return
+        data = export_all_memories()
+        import io
+        file = discord.File(
+            io.BytesIO(data.encode("utf-8")),
+            filename="cat_memories_all.json",
+        )
+        await ctx.send("*drops a big box of memories off the table* here's everyone's data~ 📦🐱", file=file)
+        print(f"[CMD] @cat memory export_all completed by {ctx.author}")
+        return
+
+    # ── Import ───────────────────────────────────────────
+    if action and action.lower() == "import":
+        if not ctx.message.attachments:
+            await ctx.send(
+                "*looks around* attach a `.json` file to import!\n"
+                "usage: `@cat memory import` with a file attached 🐱"
+            )
+            return
+        attachment = ctx.message.attachments[0]
+        if not attachment.filename.endswith(".json"):
+            await ctx.send("*hisses at file* that's not a `.json` file! 🐱")
+            return
+        try:
+            raw = (await attachment.read()).decode("utf-8")
+        except Exception:
+            await ctx.send("*scratches file* couldn't read that... make sure it's a valid text file! 🐱")
+            return
+        result = import_user_memory(user_id, raw)
+        if result == "ok":
+            await ctx.send("*unpacks memories carefully* done! your memories have been restored~ 🐱")
+            print(f"[CMD] @cat memory import completed for {ctx.author}")
+        else:
+            await ctx.send(f"*knocks file off table* import failed: {result} 🐱")
+            print(f"[CMD] @cat memory import failed for {ctx.author}: {result}")
+        return
+
+    if action and action.lower() == "import_all":
+        if not ctx.guild or not ctx.author.guild_permissions.administrator:
+            await ctx.send("*hisses* only server admins can import all memories! 🐱")
+            print(f"[CMD] @cat memory import_all denied for {ctx.author} — not admin")
+            return
+        if not ctx.message.attachments:
+            await ctx.send(
+                "*looks around* attach a `.json` file to import!\n"
+                "usage: `@cat memory import_all` with a file attached 🐱"
+            )
+            return
+        attachment = ctx.message.attachments[0]
+        if not attachment.filename.endswith(".json"):
+            await ctx.send("*hisses at file* that's not a `.json` file! 🐱")
+            return
+        try:
+            raw = (await attachment.read()).decode("utf-8")
+        except Exception:
+            await ctx.send("*scratches file* couldn't read that... make sure it's a valid text file! 🐱")
+            return
+        count, error = import_all_memories(raw)
+        if error:
+            await ctx.send(f"*knocks file off table* import failed: {error} 🐱")
+            print(f"[CMD] @cat memory import_all failed: {error}")
+        else:
+            await ctx.send(f"*unpacks a big box* done! imported memories for {count} users~ 🐱")
+            print(f"[CMD] @cat memory import_all completed by {ctx.author} — {count} users")
+        return
+
+    # ── View (default) ───────────────────────────────────
     if not mem.long_term_notes and not mem.recent_messages:
         await ctx.send("*tilts head* i don't remember anything about you yet... talk to me more! 🐱")
         print(f"[CMD] @cat memory — no memories found for {ctx.author}")
@@ -258,6 +349,10 @@ async def cat_help(ctx: commands.Context):
     embed.add_field(name="@cat context clear", value="Remove custom context", inline=False)
     embed.add_field(name="@cat memory", value="View what I remember about you", inline=False)
     embed.add_field(name="@cat memory clear", value="Make me forget everything about you", inline=False)
+    embed.add_field(name="@cat memory export", value="Download your memories as a JSON file", inline=False)
+    embed.add_field(name="@cat memory import", value="Restore memories from an attached JSON file", inline=False)
+    embed.add_field(name="@cat memory export_all", value="Export all user memories (admin only)", inline=False)
+    embed.add_field(name="@cat memory import_all", value="Import all user memories (admin only)", inline=False)
     embed.add_field(name="@cat <anything>", value="Just talk to me like a real cat!", inline=False)
     embed.add_field(name="@cat schedule", value="View the daily posting schedule", inline=False)
     embed.add_field(name="@cat help_me", value="Show this help message", inline=False)

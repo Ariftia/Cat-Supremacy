@@ -131,6 +131,81 @@ def prune_old_memories():
         print("[MEMORY] No old memories to prune")
 
 
+# ── Export / Import ──────────────────────────────────────
+def export_user_memory(user_id: int) -> Optional[str]:
+    """Export a single user's memory as a JSON string. Returns None if no data."""
+    mem = _store.get(user_id)
+    if mem is None:
+        return None
+    return json.dumps(asdict(mem), ensure_ascii=False, indent=2)
+
+
+def export_all_memories() -> str:
+    """Export the entire memory store as a JSON string."""
+    data = {str(uid): asdict(mem) for uid, mem in _store.items()}
+    return json.dumps(data, ensure_ascii=False, indent=2)
+
+
+def import_user_memory(user_id: int, raw_json: str) -> str:
+    """Import a single user's memory from a JSON string.
+
+    Returns a status message (success or error description).
+    """
+    try:
+        blob = json.loads(raw_json)
+    except json.JSONDecodeError as e:
+        return f"Invalid JSON: {e}"
+
+    # Accept both single-user and full-store formats
+    if "user_id" in blob:
+        # Single-user export
+        _store[user_id] = UserMemory(
+            user_id=user_id,
+            username=blob.get("username", ""),
+            recent_messages=blob.get("recent_messages", []),
+            long_term_notes=blob.get("long_term_notes", ""),
+            last_seen=blob.get("last_seen", time.time()),
+        )
+        save_all()
+        print(f"[MEMORY] Imported single-user memory for user {user_id}")
+        return "ok"
+    else:
+        return "Unrecognized format — expected a single-user memory JSON."
+
+
+def import_all_memories(raw_json: str) -> tuple[int, str]:
+    """Import a full memory store from a JSON string.
+
+    Returns ``(count_imported, error_or_empty)``.
+    """
+    try:
+        data = json.loads(raw_json)
+    except json.JSONDecodeError as e:
+        return 0, f"Invalid JSON: {e}"
+
+    if not isinstance(data, dict):
+        return 0, "Expected a JSON object with user IDs as keys."
+
+    count = 0
+    for uid_str, blob in data.items():
+        try:
+            uid = int(uid_str)
+        except ValueError:
+            continue
+        _store[uid] = UserMemory(
+            user_id=uid,
+            username=blob.get("username", ""),
+            recent_messages=blob.get("recent_messages", []),
+            long_term_notes=blob.get("long_term_notes", ""),
+            last_seen=blob.get("last_seen", 0.0),
+        )
+        count += 1
+
+    save_all()
+    print(f"[MEMORY] Imported memories for {count} users from uploaded file")
+    return count, ""
+
+
 # ── Memory extraction prompt (run after each exchange) ───
 EXTRACT_PROMPT = (
     "You are a memory manager. Given the conversation below, extract ONLY new "
