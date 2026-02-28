@@ -61,7 +61,7 @@ async def ask_cat(question: str) -> str:
                 },
                 {"role": "user", "content": question},
             ],
-            max_tokens=1024,
+            max_completion_tokens=1024,
             temperature=0.9,
         )
         return response.choices[0].message.content
