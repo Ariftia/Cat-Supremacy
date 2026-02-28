@@ -9,15 +9,19 @@ A Discord bot that posts **cat GIFs** and **cat facts** every morning, afternoon
 - **Scheduled posts** — Automatically sends a cat GIF + fact 3× daily (morning, afternoon, evening)
 - **Beautiful embeds** — Color-coded by time of day with themed greetings
 - **Manual commands** — Get cat content on-demand anytime
+- **AI chat** — Talk to the bot like a real cat, powered by [OpenAI ChatGPT](https://openai.com/)
+- **Web search** — Search the internet for news and journals via OpenAI's web search
+- **Image generation** — Generate AI images with DALL-E 3
+- **Custom context** — Set per-server knowledge for AI responses
 - **Free APIs** — Uses [TheCatAPI](https://thecatapi.com/) for GIFs and [catfact.ninja](https://catfact.ninja/) for facts
 
 ## Daily Schedule (UTC)
 
 | Time | Slot |
 |------|------|
-| 🌅 08:00 | Morning |
-| ☀️ 14:00 | Afternoon |
-| 🌙 20:00 | Evening |
+| 🌅 01:00 | Morning |
+| ☀️ 09:00 | Afternoon |
+| 🌙 18:00 | Evening |
 
 > You can change these times in `config.py`.
 
@@ -53,6 +57,7 @@ copy .env.example .env     # Windows
 # Edit .env and fill in your values:
 #   DISCORD_TOKEN=your_bot_token_here
 #   CAT_CHANNEL_ID=your_channel_id_here
+#   OPENAI_API_KEY=your_openai_key_here  (required for AI chat, search & image)
 ```
 
 > **How to get Channel ID:** Enable Developer Mode in Discord Settings → Advanced, then right-click a channel → Copy ID.
@@ -79,6 +84,7 @@ python bot.py
 | `@cat gif` | Get a random cat GIF |
 | `@cat fact` | Get a random cat fact |
 | `@cat search <topic>` | Search the internet for news & journals |
+<<<<<<< HEAD
 | `@cat image <description>` | Generate an AI image with DALL-E |
 | `@cat context <text>` | Set custom knowledge for AI responses |
 | `@cat context clear` | Remove custom context |
@@ -112,6 +118,14 @@ OpenAI API calls also log **token usage** (prompt / completion / total) so you c
 [API] search_web response received (1820 chars) | tokens: input=102, output=590, total=692
 [MEMORY] Extraction API call | tokens: prompt=210, completion=35, total=245
 ```
+=======
+| `@cat image <description>` | Generate an AI image with DALL-E 3 |
+| `@cat context <text>` | Set custom knowledge for AI responses |
+| `@cat context clear` | Remove custom context |
+| `@cat schedule` | View the daily posting schedule |
+| `@cat help_me` | Show all available commands |
+| `@cat <anything>` | Talk to the bot like a real cat (AI powered) |
+>>>>>>> 1387c8d9dcf039d0ec2225d9c286093f26e0cde6
 
 ---
 
@@ -140,6 +154,18 @@ The bot works without an API key, but you can get a free key from [TheCatAPI](ht
 ```
 CAT_API_KEY=your_key_here
 ```
+
+---
+
+## Optional: OpenAI API Key
+
+The `@cat search`, `@cat image`, `@cat context`, and AI chat features require an [OpenAI API key](https://platform.openai.com/). Add it to your `.env`:
+
+```
+OPENAI_API_KEY=your_key_here
+```
+
+Without this key, all AI-powered commands will return an error message.
 
 ---
 
