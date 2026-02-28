@@ -5,7 +5,7 @@ import discord
 from discord.ext import tasks
 
 import config
-from cat_service import fetch_cat_gif, fetch_cat_fact
+from cat_service import fetch_cat_gif, fetch_cat_fact, ask_cat
 
 # ── Greeting map ─────────────────────────────────────────
 TIME_OF_DAY = {
@@ -65,6 +65,18 @@ async def _build_embed(slot: dict) -> tuple[discord.Embed, str]:
     return embed, gif_url
 
 
+async def _build_scheduled_messages(slot: dict) -> tuple[str, str, str]:
+    """Build the three separate messages for a scheduled post: greeting, fact, gif."""
+    greeting_prompt = (
+        f"It's {slot['greeting'].lower()} time. Write a short, casual greeting "
+        f"to the server as a cat. Be cute and in character."
+    )
+    greeting = await ask_cat(greeting_prompt)
+    fact = await fetch_cat_fact()
+    gif_url = await fetch_cat_gif()
+    return greeting, f"🐱 {fact}", gif_url
+
+
 def setup_scheduled_tasks(bot: discord.Client):
     """Register the daily cat posting loop on the bot."""
 
@@ -76,8 +88,10 @@ def setup_scheduled_tasks(bot: discord.Client):
             return
 
         slot = _current_slot()
-        embed, _ = await _build_embed(slot)
-        await channel.send(embed=embed)
+        greeting, fact, gif_url = await _build_scheduled_messages(slot)
+        await channel.send(greeting[:2000])
+        await channel.send(fact[:2000])
+        await channel.send(gif_url)
         print(f"[INFO] Posted {slot['greeting']} cat content!")
 
     @post_cat_content.before_loop

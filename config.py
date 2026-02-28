@@ -10,6 +10,10 @@ CAT_CHANNEL_ID: int = int(os.getenv("CAT_CHANNEL_ID", "0"))
 # ── The Cat API (optional key for higher rate limits) ────
 CAT_API_KEY: str = os.getenv("CAT_API_KEY", "")
 
+
+# ── OpenAI (for !cat ask) ────────────────────────────────
+OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+
 # ── Schedule times (24-hour format, UTC) ─────────────────
 MORNING_HOUR = 5 - 11 + 24 
 AFTERNOON_HOUR = 12 - 11
