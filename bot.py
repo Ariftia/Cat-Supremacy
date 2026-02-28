@@ -86,6 +86,50 @@ async def cat_schedule(ctx: commands.Context):
     await ctx.send(embed=embed)
 
 
+@bot.command(name="search")
+async def cat_search(ctx: commands.Context, *, query: str = None):
+    """Search the internet for news and journals (@cat search <query>)."""
+    if not query:
+        await ctx.send("*paws at keyboard* meow~ tell me what to search! usage: `@cat search <topic>`")
+        return
+
+    from cat_service import search_web
+
+    async with ctx.typing():
+        answer = await search_web(query)
+
+    # Split long responses into multiple messages (Discord 2000 char limit)
+    while len(answer) > 2000:
+        split_at = answer.rfind("\n", 0, 2000)
+        if split_at == -1:
+            split_at = 2000
+        await ctx.send(answer[:split_at])
+        answer = answer[split_at:].lstrip()
+    if answer:
+        await ctx.send(answer)
+
+
+@bot.command(name="image")
+async def cat_image(ctx: commands.Context, *, prompt: str = None):
+    """Generate an image with AI (@cat image <prompt>)."""
+    if not prompt:
+        await ctx.send("*knocks pencil off table* meow~ tell me what to draw! usage: `@cat image <description>`")
+        return
+
+    from cat_service import generate_image
+
+    async with ctx.typing():
+        result = await generate_image(prompt)
+
+    if result.startswith("❌"):
+        await ctx.send(result)
+    else:
+        embed = discord.Embed(color=0xFFA500)
+        embed.set_image(url=result)
+        embed.set_footer(text=f"🎨 {prompt[:100]}")
+        await ctx.send(embed=embed)
+
+
 @bot.command(name="help_me")
 async def cat_help(ctx: commands.Context):
     """Show all available commands (@cat help_me)."""
@@ -97,6 +141,8 @@ async def cat_help(ctx: commands.Context):
     embed.add_field(name="@cat now", value="Post a cat GIF + fact right now", inline=False)
     embed.add_field(name="@cat gif", value="Get a random cat GIF", inline=False)
     embed.add_field(name="@cat fact", value="Get a random cat fact", inline=False)
+    embed.add_field(name="@cat search <topic>", value="Search the internet for news & journals", inline=False)
+    embed.add_field(name="@cat image <description>", value="Generate an AI image", inline=False)
     embed.add_field(name="@cat <anything>", value="Just talk to me like a real cat!", inline=False)
     embed.add_field(name="@cat schedule", value="View the daily posting schedule", inline=False)
     embed.add_field(name="@cat help_me", value="Show this help message", inline=False)

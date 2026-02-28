@@ -44,7 +44,7 @@ async def ask_cat(question: str) -> str:
 
     try:
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-5-mini",
             messages=[
                 {
                     "role": "system",
@@ -61,9 +61,55 @@ async def ask_cat(question: str) -> str:
                 },
                 {"role": "user", "content": question},
             ],
-            max_tokens=512,
+            max_tokens=1024,
             temperature=0.9,
         )
         return response.choices[0].message.content
     except Exception as e:
         return f"❌ Couldn't get an answer: {e}"
+
+
+async def search_web(query: str) -> str:
+    """Search the web using OpenAI's web search and return a summarized answer."""
+    if not config.OPENAI_API_KEY:
+        return "❌ OpenAI API key is not configured. Set `OPENAI_API_KEY` in your `.env` file."
+
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+
+    try:
+        response = await client.responses.create(
+            model="gpt-4.1-mini",
+            tools=[{"type": "web_search_preview"}],
+            input=(
+                f"Search the internet for the following topic and provide a concise summary "
+                f"with key findings and source links. Focus on news articles, journals, and "
+                f"reliable sources. Topic: {query}"
+            ),
+        )
+        return response.output_text
+    except Exception as e:
+        return f"❌ Search failed: {e}"
+
+
+async def generate_image(prompt: str) -> str:
+    """Generate an image using OpenAI's DALL-E and return the image URL."""
+    if not config.OPENAI_API_KEY:
+        return "❌ OpenAI API key is not configured. Set `OPENAI_API_KEY` in your `.env` file."
+
+    from openai import AsyncOpenAI
+
+    client = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+
+    try:
+        response = await client.images.generate(
+            model="dall-e-3",
+            prompt=prompt,
+            n=1,
+            size="1024x1024",
+            quality="standard",
+        )
+        return response.data[0].url
+    except Exception as e:
+        return f"❌ Image generation failed: {e}"
