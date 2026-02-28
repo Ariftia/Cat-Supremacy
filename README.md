@@ -75,11 +75,43 @@ python bot.py
 
 | Command | Description |
 |---------|-------------|
-| `!cat now` | Post a cat GIF + fact immediately |
-| `!cat gif` | Get a random cat GIF |
-| `!cat fact` | Get a random cat fact |
-| `!cat schedule` | View the daily posting schedule |
-| `!cat help_me` | Show all available commands |
+| `@cat now` | Post a cat GIF + fact immediately |
+| `@cat gif` | Get a random cat GIF |
+| `@cat fact` | Get a random cat fact |
+| `@cat search <topic>` | Search the internet for news & journals |
+| `@cat image <description>` | Generate an AI image with DALL-E |
+| `@cat context <text>` | Set custom knowledge for AI responses |
+| `@cat context clear` | Remove custom context |
+| `@cat memory` | View what the bot remembers about you |
+| `@cat memory clear` | Make the bot forget everything about you |
+| `@cat schedule` | View the daily posting schedule |
+| `@cat help_me` | Show all available commands |
+| `@cat <anything>` | Just talk to the cat! |
+
+---
+
+## Logging
+
+The bot prints structured logs to stdout for every action. Each log line is prefixed with a tag:
+
+| Prefix | Scope |
+|--------|-------|
+| `[INFO]` | Bot startup & general status |
+| `[CMD]` | Command invocations (who, where, input, completion) |
+| `[CHAT]` | AI chat via mention (question, response length) |
+| `[API]` | External API calls — TheCatAPI, catfact.ninja, OpenAI |
+| `[MEMORY]` | Memory load, save, create, prune, and extraction |
+| `[SCHED]` | Scheduled posting lifecycle |
+| `[ERROR]` | Failures in API calls |
+| `[WARNING]` | Non-fatal issues (save failures, extraction errors) |
+
+OpenAI API calls also log **token usage** (prompt / completion / total) so you can monitor costs:
+
+```
+[API] ask_cat response received (142 chars) | tokens: prompt=385, completion=48, total=433
+[API] search_web response received (1820 chars) | tokens: input=102, output=590, total=692
+[MEMORY] Extraction API call | tokens: prompt=210, completion=35, total=245
+```
 
 ---
 
@@ -87,14 +119,16 @@ python bot.py
 
 ```
 Cat-Supremacy/
-├── bot.py            # Main entry point — commands & startup
-├── config.py         # Configuration & environment variables
-├── cat_service.py    # API calls to fetch GIFs & facts
-├── scheduler.py      # Scheduled daily posting logic
-├── requirements.txt  # Python dependencies
-├── .env              # Your secrets (not committed)
-├── .env.example      # Template for .env
-└── .gitignore        # Git ignore rules
+├── bot.py              # Main entry point — commands & startup
+├── config.py           # Configuration & environment variables
+├── cat_service.py      # API calls to fetch GIFs, facts, AI chat, search, image gen
+├── memory.py           # Per-user memory system (rolling + long-term)
+├── scheduler.py        # Scheduled daily posting logic
+├── user_memories.json  # Persisted user memories (auto-generated)
+├── requirements.txt    # Python dependencies
+├── .env                # Your secrets (not committed)
+├── .env.example        # Template for .env
+└── .gitignore          # Git ignore rules
 ```
 
 ---

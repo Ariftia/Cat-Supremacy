@@ -40,6 +40,7 @@ SCHEDULE_TIMES = [
 def _current_slot() -> dict:
     """Return the greeting slot for the current UTC hour."""
     now_hour = datetime.datetime.now(datetime.timezone.utc).hour
+    print(f"[SCHED] Determining slot for UTC hour {now_hour}")
     # Find the closest slot that has already started
     for hour in sorted(TIME_OF_DAY.keys(), reverse=True):
         if now_hour >= hour:
@@ -49,6 +50,7 @@ def _current_slot() -> dict:
 
 async def _build_embed(slot: dict) -> tuple[discord.Embed, str]:
     """Create a rich embed with a cat GIF and fact."""
+    print(f"[SCHED] Building embed for slot '{slot['greeting']}'")
     gif_url = await fetch_cat_gif()
     fact = await fetch_cat_fact()
 
@@ -62,11 +64,13 @@ async def _build_embed(slot: dict) -> tuple[discord.Embed, str]:
     embed.add_field(name="🐱 Cat Fact", value=fact, inline=False)
     embed.set_footer(text="Cat Supremacy Bot • Powered by TheCatAPI & catfact.ninja")
 
+    print(f"[SCHED] Embed built for '{slot['greeting']}'")
     return embed, gif_url
 
 
 async def _build_scheduled_messages(slot: dict) -> tuple[str, str, str]:
     """Build the three separate messages for a scheduled post: greeting, fact, gif."""
+    print(f"[SCHED] Building scheduled messages for slot '{slot['greeting']}'")
     greeting_prompt = (
         f"It's {slot['greeting'].lower()} time. Write a short, casual greeting "
         f"to the server as a cat. Be cute and in character."
@@ -74,6 +78,7 @@ async def _build_scheduled_messages(slot: dict) -> tuple[str, str, str]:
     greeting = await ask_cat(greeting_prompt)
     fact = await fetch_cat_fact()
     gif_url = await fetch_cat_gif()
+    print(f"[SCHED] Scheduled messages built for '{slot['greeting']}'")
     return greeting, f"🐱 {fact}", gif_url
 
 
@@ -82,6 +87,7 @@ def setup_scheduled_tasks(bot: discord.Client):
 
     @tasks.loop(time=SCHEDULE_TIMES)
     async def post_cat_content():
+        print("[SCHED] Scheduled post triggered")
         channel = bot.get_channel(config.CAT_CHANNEL_ID)
         if channel is None:
             print(f"[WARNING] Channel {config.CAT_CHANNEL_ID} not found. Skipping post.")
@@ -92,7 +98,7 @@ def setup_scheduled_tasks(bot: discord.Client):
         await channel.send(greeting[:2000])
         await channel.send(fact[:2000])
         await channel.send(gif_url)
-        print(f"[INFO] Posted {slot['greeting']} cat content!")
+        print(f"[SCHED] Posted {slot['greeting']} cat content to #{channel.name}!")
 
     @post_cat_content.before_loop
     async def before_post():

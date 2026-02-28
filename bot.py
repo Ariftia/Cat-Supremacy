@@ -9,6 +9,13 @@ import re
 
 import config
 from scheduler import setup_scheduled_tasks, _build_scheduled_messages, _current_slot, TIME_OF_DAY
+from memory import (
+    get_user_memory,
+    load_all as load_memories,
+    save_all as save_memories,
+    prune_old_memories,
+    extract_and_update_memories,
+)
 
 # ── Bot setup ────────────────────────────────────────────
 intents = discord.Intents.default()
@@ -27,6 +34,10 @@ custom_contexts: dict[int, str] = {}
 # ── Events ───────────────────────────────────────────────
 @bot.event
 async def on_ready():
+    # Load persisted user memories from disk
+    load_memories()
+    prune_old_memories()
+
     print(f"[INFO] Logged in as {bot.user} (ID: {bot.user.id})")
     print(f"[INFO] Target channel: {config.CAT_CHANNEL_ID}")
     print("[INFO] Starting scheduled cat poster...")
@@ -48,35 +59,42 @@ async def on_ready():
 @bot.command(name="now")
 async def cat_now(ctx: commands.Context):
     """Immediately post a cat GIF and fact (@cat now)."""
+    print(f"[CMD] @cat now triggered by {ctx.author} in #{getattr(ctx.channel, 'name', 'DM')}")
     slot = _current_slot()
     async with ctx.typing():
         greeting, fact, gif_url = await _build_scheduled_messages(slot)
     await ctx.send(greeting[:2000])
     await ctx.send(gif_url[:2000])
     await ctx.send(fact)
+    print(f"[CMD] @cat now completed for {ctx.author}")
 
 
 @bot.command(name="fact")
 async def cat_fact_cmd(ctx: commands.Context):
     """Get just a cat fact (!cat fact)."""
+    print(f"[CMD] @cat fact triggered by {ctx.author} in #{getattr(ctx.channel, 'name', 'DM')}")
     from cat_service import fetch_cat_fact
 
     fact = await fetch_cat_fact()
     await ctx.send(f"🐱 **Cat Fact:** {fact}")
+    print(f"[CMD] @cat fact completed for {ctx.author}")
 
 
 @bot.command(name="gif")
 async def cat_gif_cmd(ctx: commands.Context):
     """Get just a cat GIF (!cat gif)."""
+    print(f"[CMD] @cat gif triggered by {ctx.author} in #{getattr(ctx.channel, 'name', 'DM')}")
     from cat_service import fetch_cat_gif
 
     gif = await fetch_cat_gif()
     await ctx.send(gif)
+    print(f"[CMD] @cat gif completed for {ctx.author}")
 
 
 @bot.command(name="schedule")
 async def cat_schedule(ctx: commands.Context):
     """Show the daily posting schedule (!cat schedule)."""
+    print(f"[CMD] @cat schedule triggered by {ctx.author} in #{getattr(ctx.channel, 'name', 'DM')}")
     embed = discord.Embed(
         title="🗓️ Cat Supremacy Daily Schedule (UTC)",
         color=0xFFA500,
@@ -89,12 +107,15 @@ async def cat_schedule(ctx: commands.Context):
         )
     embed.set_footer(text="All times are in UTC. Adjust for your timezone!")
     await ctx.send(embed=embed)
+    print(f"[CMD] @cat schedule completed for {ctx.author}")
 
 
 @bot.command(name="search")
 async def cat_search(ctx: commands.Context, *, query: str = None):
     """Search the internet for news and journals (@cat search <query>)."""
+    print(f"[CMD] @cat search triggered by {ctx.author} in #{getattr(ctx.channel, 'name', 'DM')} | query='{query}'")
     if not query:
+        print("[CMD] @cat search aborted — no query provided")
         await ctx.send("*paws at keyboard* meow~ tell me what to search! usage: `@cat search <topic>`")
         return
 
@@ -112,12 +133,15 @@ async def cat_search(ctx: commands.Context, *, query: str = None):
         answer = answer[split_at:].lstrip()
     if answer:
         await ctx.send(answer)
+    print(f"[CMD] @cat search completed for {ctx.author}")
 
 
 @bot.command(name="image")
 async def cat_image(ctx: commands.Context, *, prompt: str = None):
     """Generate an image with AI (@cat image <prompt>)."""
+    print(f"[CMD] @cat image triggered by {ctx.author} in #{getattr(ctx.channel, 'name', 'DM')} | prompt='{prompt}'")
     if not prompt:
+        print("[CMD] @cat image aborted — no prompt provided")
         await ctx.send("*knocks pencil off table* meow~ tell me what to draw! usage: `@cat image <description>`")
         return
 
@@ -133,11 +157,13 @@ async def cat_image(ctx: commands.Context, *, prompt: str = None):
         embed.set_image(url=result)
         embed.set_footer(text=f"🎨 {prompt[:100]}")
         await ctx.send(embed=embed)
+    print(f"[CMD] @cat image completed for {ctx.author}")
 
 
 @bot.command(name="context")
 async def cat_context(ctx: commands.Context, *, content: str = None):
     """Set, view, or clear custom context for AI responses (@cat context <text>)."""
+    print(f"[CMD] @cat context triggered by {ctx.author} in #{getattr(ctx.channel, 'name', 'DM')}")
     guild_id = ctx.guild.id if ctx.guild else ctx.author.id
 
     if content is None:
@@ -145,13 +171,16 @@ async def cat_context(ctx: commands.Context, *, content: str = None):
         current = custom_contexts.get(guild_id)
         if current:
             await ctx.send(f"*flicks tail* current custom context:\n```\n{current[:1500]}\n```")
+            print(f"[CMD] @cat context — displayed current context for guild {guild_id}")
         else:
             await ctx.send("*yawns* no custom context set. use `@cat context <your text>` to add one~")
+            print(f"[CMD] @cat context — no context set for guild {guild_id}")
         return
 
     if content.lower() in ("clear", "reset", "remove", "none"):
         custom_contexts.pop(guild_id, None)
         await ctx.send("*knocks context off the table* custom context cleared! back to being just a cat~ 🐱")
+        print(f"[CMD] @cat context cleared for guild {guild_id} by {ctx.author}")
         return
 
     # Check if there's a text file attachment
@@ -165,11 +194,56 @@ async def cat_context(ctx: commands.Context, *, content: str = None):
 
     custom_contexts[guild_id] = content[:4000]  # Limit to 4000 chars
     await ctx.send(f"*purrs* custom context set! ({len(content[:4000])} chars) i'll use this knowledge when answering~ 🐱")
+    print(f"[CMD] @cat context set for guild {guild_id} by {ctx.author} ({len(content[:4000])} chars)")
+
+
+@bot.command(name="memory")
+async def cat_memory(ctx: commands.Context, *, action: str = None):
+    """View or clear what the bot remembers about you (@cat memory / @cat memory clear)."""
+    print(f"[CMD] @cat memory triggered by {ctx.author} in #{getattr(ctx.channel, 'name', 'DM')}")
+    user_id = ctx.author.id
+    mem = get_user_memory(user_id, ctx.author.display_name)
+
+    if action and action.lower() in ("clear", "reset", "forget", "wipe"):
+        mem.recent_messages.clear()
+        mem.long_term_notes = ""
+        save_memories()
+        await ctx.send("*bonks head on keyboard* poof! i forgot everything about you~ fresh start! 🐱")
+        print(f"[CMD] @cat memory cleared for user {ctx.author} (ID: {user_id})")
+        return
+
+    if not mem.long_term_notes and not mem.recent_messages:
+        await ctx.send("*tilts head* i don't remember anything about you yet... talk to me more! 🐱")
+        print(f"[CMD] @cat memory — no memories found for {ctx.author}")
+        return
+
+    embed = discord.Embed(
+        title=f"🧠 What I Remember About {ctx.author.display_name}",
+        color=0xFFA500,
+    )
+    if mem.long_term_notes:
+        embed.add_field(
+            name="📝 Long-term Memories",
+            value=mem.long_term_notes[:1024],
+            inline=False,
+        )
+    embed.add_field(
+        name="💬 Recent Conversation",
+        value=f"{len(mem.recent_messages) // 2} exchanges in memory",
+        inline=False,
+    )
+    import datetime
+    if mem.last_seen > 0:
+        last = datetime.datetime.fromtimestamp(mem.last_seen, tz=datetime.timezone.utc)
+        embed.set_footer(text=f"Last talked: {last.strftime('%Y-%m-%d %H:%M UTC')}")
+    await ctx.send(embed=embed)
+    print(f"[CMD] @cat memory displayed for {ctx.author}")
 
 
 @bot.command(name="help_me")
 async def cat_help(ctx: commands.Context):
     """Show all available commands (@cat help_me)."""
+    print(f"[CMD] @cat help_me triggered by {ctx.author} in #{getattr(ctx.channel, 'name', 'DM')}")
     embed = discord.Embed(
         title="🐱👑 Cat Supremacy — Commands",
         description="Here's everything I can do!",
@@ -182,17 +256,27 @@ async def cat_help(ctx: commands.Context):
     embed.add_field(name="@cat image <description>", value="Generate an AI image", inline=False)
     embed.add_field(name="@cat context <text>", value="Set custom knowledge for AI responses", inline=False)
     embed.add_field(name="@cat context clear", value="Remove custom context", inline=False)
+    embed.add_field(name="@cat memory", value="View what I remember about you", inline=False)
+    embed.add_field(name="@cat memory clear", value="Make me forget everything about you", inline=False)
     embed.add_field(name="@cat <anything>", value="Just talk to me like a real cat!", inline=False)
     embed.add_field(name="@cat schedule", value="View the daily posting schedule", inline=False)
     embed.add_field(name="@cat help_me", value="Show this help message", inline=False)
     embed.set_footer(text="Cat Supremacy Bot • Cats rule the world!")
     await ctx.send(embed=embed)
+    print(f"[CMD] @cat help_me completed for {ctx.author}")
 
 
 @bot.event
 async def on_command_error(ctx: commands.Context, error):
     """If the command is not found, treat the entire message as a question for the AI."""
     if isinstance(error, commands.CommandNotFound):
+        # Only respond when the bot is explicitly mentioned/tagged
+        if bot.user not in ctx.message.mentions:
+            return
+        # Ignore messages from bots (including self)
+        if ctx.author.bot:
+            return
+
         # Extract everything after the mention as the question
         message = ctx.message.content
         for mention in [f"<@{bot.user.id}>", f"<@!{bot.user.id}>"]:
@@ -200,8 +284,11 @@ async def on_command_error(ctx: commands.Context, error):
         question = message.strip()
 
         if not question:
+            print(f"[CHAT] Empty message from {ctx.author} — ignored")
             await ctx.send("*stares at you blankly* ...meow? ask me someething! human 🐱")
             return
+
+        print(f"[CHAT] AI chat from {ctx.author} in #{getattr(ctx.channel, 'name', 'DM')}: '{question[:80]}'")
 
         # Check for inline [context: ...] override
         inline_context = None
@@ -223,10 +310,32 @@ async def on_command_error(ctx: commands.Context, error):
 
         from cat_service import ask_cat
 
+        # ── Memory integration ──────────────────────────────
+        user_id = ctx.author.id
+        username = ctx.author.display_name
+        mem = get_user_memory(user_id, username)
+
         async with ctx.typing():
-            answer = await ask_cat(question, custom_context=combined_context)
+            answer = await ask_cat(
+                question,
+                custom_context=combined_context,
+                user_memory_context=mem.build_context_block(),
+                recent_messages=mem.build_recent_for_api(),
+            )
 
         await ctx.send(answer[:2000])
+        print(f"[CHAT] AI response sent to {ctx.author} ({len(answer)} chars)")
+
+        # Save the exchange & extract important facts in the background
+        mem.add_exchange(question, answer)
+        save_memories()
+        print(f"[CHAT] Exchange saved for {ctx.author} — launching memory extraction")
+        # Fire-and-forget memory extraction (cheap nano model)
+        bot.loop.create_task(
+            extract_and_update_memories(
+                user_id, username, question, answer, mem.long_term_notes
+            )
+        )
     else:
         raise error
 
