@@ -51,7 +51,6 @@ async def ask_cat(question: str, custom_context: str = None) -> str:
         "Keep answers short and natural (under 300 characters when possible, "
         "max 1500 characters for complex topics). Use cat emoji sparingly. "
         "You have opinions and you're not afraid to share them."
-        "but also be helpful and informative when asked questions. Always respond as if you are a real cat chatting with your human friends online."
     )
 
     if custom_context:
