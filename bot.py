@@ -56,6 +56,15 @@ async def on_ready():
             name="cats take over the world 🐱👑",
         )
     )
+
+    # Send a hello message to the target channel
+    channel = bot.get_channel(config.CAT_CHANNEL_ID)
+    if channel:
+        await channel.send("*stretches and yawns* mrrp~ i'm awake! Cat Supremacy Bot is online and ready to serve the feline overlords 🐱👑")
+        print(f"[INFO] Hello message sent to #{channel.name}")
+    else:
+        print(f"[WARNING] Could not find channel {config.CAT_CHANNEL_ID} to send hello message")
+
     print("[INFO] Cat Supremacy Bot is live! 🐱👑")
 
 
@@ -138,6 +147,85 @@ async def cat_search(ctx: commands.Context, *, query: str = None):
     if answer:
         await ctx.send(answer)
     print(f"[CMD] @cat search completed for {ctx.author}")
+
+
+@bot.command(name="detail")
+async def cat_detail(ctx: commands.Context, *, question: str = None):
+    """Analyze an attached image in high detail (@cat detail <question> + image)."""
+    print(f"[CMD] @cat detail triggered by {ctx.author} in #{getattr(ctx.channel, 'name', 'DM')}")
+
+    if not ctx.message.attachments:
+        await ctx.send("*squints* meow~ attach an image and i'll look at it closely! usage: `@cat detail <question>` with an image attached 🐱")
+        return
+
+    if not question:
+        question = "Describe this image in detail. If there is any text, read and transcribe all of it."
+
+    # Process attachments (same logic as chat handler)
+    IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
+    TEXT_EXTS = (".txt", ".md", ".csv", ".json", ".xml", ".py", ".js", ".ts",
+                 ".html", ".css", ".log", ".yaml", ".yml", ".toml", ".ini",
+                 ".cfg", ".sh", ".bat", ".sql", ".java", ".c", ".cpp", ".h",
+                 ".rs", ".go", ".rb", ".php", ".env", ".conf")
+    attachments_for_ai: list[dict] = []
+
+    for att in ctx.message.attachments:
+        filename_lower = att.filename.lower()
+        if any(filename_lower.endswith(ext) for ext in IMAGE_EXTS) or (att.content_type and att.content_type.startswith("image/")):
+            attachments_for_ai.append({"type": "image", "url": att.url, "filename": att.filename})
+            print(f"[CMD] detail — image attachment: {att.filename}")
+        elif filename_lower.endswith(".pdf") or (att.content_type and att.content_type == "application/pdf"):
+            try:
+                from cat_service import extract_pdf_text
+                raw = await att.read()
+                pdf_text = extract_pdf_text(raw)
+                if pdf_text:
+                    attachments_for_ai.append({"type": "text", "filename": att.filename, "content": pdf_text})
+                    print(f"[CMD] detail — PDF read: {att.filename} ({len(pdf_text)} chars)")
+            except Exception as e:
+                print(f"[CMD] detail — failed to read PDF {att.filename}: {e}")
+        elif any(filename_lower.endswith(ext) for ext in TEXT_EXTS) or (att.content_type and att.content_type.startswith("text/")):
+            try:
+                raw = await att.read()
+                text_content = raw.decode("utf-8", errors="replace")[:8000]
+                attachments_for_ai.append({"type": "text", "filename": att.filename, "content": text_content})
+            except Exception as e:
+                print(f"[CMD] detail — failed to read {att.filename}: {e}")
+
+    if not any(a["type"] == "image" for a in attachments_for_ai):
+        await ctx.send("*tilts head* that doesn't look like an image... attach a png, jpg, gif, or webp! 🐱")
+        return
+
+    from cat_service import ask_cat
+
+    guild_id = ctx.guild.id if ctx.guild else ctx.author.id
+    user_id = ctx.author.id
+    username = ctx.author.display_name
+    mem = get_user_memory(user_id, username)
+
+    async with ctx.typing():
+        answer = await ask_cat(
+            question,
+            custom_context=custom_contexts.get(guild_id),
+            user_memory_context=mem.build_context_block(),
+            recent_messages=mem.build_recent_for_api(),
+            attachments=attachments_for_ai,
+            image_detail="high",
+        )
+
+    # Split long responses
+    while len(answer) > 2000:
+        split_at = answer.rfind("\n", 0, 2000)
+        if split_at == -1:
+            split_at = 2000
+        await ctx.send(answer[:split_at])
+        answer = answer[split_at:].lstrip()
+    if answer:
+        await ctx.send(answer)
+
+    mem.add_exchange(question, answer)
+    save_memories()
+    print(f"[CMD] @cat detail completed for {ctx.author}")
 
 
 @bot.command(name="image")
@@ -345,6 +433,7 @@ async def cat_help(ctx: commands.Context):
     embed.add_field(name="@cat fact", value="Get a random cat fact", inline=False)
     embed.add_field(name="@cat search <topic>", value="Search the internet for news & journals", inline=False)
     embed.add_field(name="@cat image <description>", value="Generate an AI image", inline=False)
+    embed.add_field(name="@cat detail <question>", value="Analyze an attached image in full detail (high-res, reads text)", inline=False)
     embed.add_field(name="@cat context <text>", value="Set custom knowledge for AI responses", inline=False)
     embed.add_field(name="@cat context clear", value="Remove custom context", inline=False)
     embed.add_field(name="@cat memory", value="View what I remember about you", inline=False)
@@ -353,7 +442,7 @@ async def cat_help(ctx: commands.Context):
     embed.add_field(name="@cat memory import", value="Restore memories from an attached JSON file", inline=False)
     embed.add_field(name="@cat memory export_all", value="Export all user memories (admin only)", inline=False)
     embed.add_field(name="@cat memory import_all", value="Import all user memories (admin only)", inline=False)
-    embed.add_field(name="@cat <anything>", value="Just talk to me like a real cat!", inline=False)
+    embed.add_field(name="@cat <anything>", value="Just talk to me like a real cat! Attach images, PDFs, or text files and I'll read them too~", inline=False)
     embed.add_field(name="@cat schedule", value="View the daily posting schedule", inline=False)
     embed.add_field(name="@cat help_me", value="Show this help message", inline=False)
     embed.set_footer(text="Cat Supremacy Bot • Cats rule the world!")
@@ -384,6 +473,61 @@ async def on_command_error(ctx: commands.Context, error):
             return
 
         print(f"[CHAT] AI chat from {ctx.author} in #{getattr(ctx.channel, 'name', 'DM')}: '{question[:80]}'")
+
+        # ── Process attachments (images, text files, PDFs, etc.) ──
+        IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
+        TEXT_EXTS = (".txt", ".md", ".csv", ".json", ".xml", ".py", ".js", ".ts",
+                     ".html", ".css", ".log", ".yaml", ".yml", ".toml", ".ini",
+                     ".cfg", ".sh", ".bat", ".sql", ".java", ".c", ".cpp", ".h",
+                     ".rs", ".go", ".rb", ".php", ".env", ".conf")
+        attachments_for_ai: list[dict] = []
+
+        for att in ctx.message.attachments:
+            filename_lower = att.filename.lower()
+            # Images – pass the Discord CDN URL directly
+            if any(filename_lower.endswith(ext) for ext in IMAGE_EXTS) or (att.content_type and att.content_type.startswith("image/")):
+                attachments_for_ai.append({
+                    "type": "image",
+                    "url": att.url,
+                    "filename": att.filename,
+                })
+                print(f"[CHAT] Image attachment detected: {att.filename} ({att.content_type})")
+            # PDFs – extract text with PyMuPDF
+            elif filename_lower.endswith(".pdf") or (att.content_type and att.content_type == "application/pdf"):
+                try:
+                    from cat_service import extract_pdf_text
+                    raw = await att.read()
+                    pdf_text = extract_pdf_text(raw)
+                    if pdf_text:
+                        attachments_for_ai.append({
+                            "type": "text",
+                            "filename": att.filename,
+                            "content": pdf_text,
+                        })
+                        print(f"[CHAT] PDF attachment read: {att.filename} ({len(pdf_text)} chars)")
+                    else:
+                        question += f"\n[User attached a PDF: {att.filename} — but it appears to be a scanned image with no extractable text]"
+                        print(f"[CHAT] PDF attachment has no extractable text: {att.filename}")
+                except Exception as e:
+                    question += f"\n[User attached a PDF: {att.filename} — failed to read: {e}]"
+                    print(f"[CHAT] Failed to read PDF {att.filename}: {e}")
+            # Text-based files – read content
+            elif any(filename_lower.endswith(ext) for ext in TEXT_EXTS) or (att.content_type and att.content_type.startswith("text/")):
+                try:
+                    raw = await att.read()
+                    text_content = raw.decode("utf-8", errors="replace")[:8000]  # cap at 8k chars
+                    attachments_for_ai.append({
+                        "type": "text",
+                        "filename": att.filename,
+                        "content": text_content,
+                    })
+                    print(f"[CHAT] Text attachment read: {att.filename} ({len(text_content)} chars)")
+                except Exception as e:
+                    print(f"[CHAT] Failed to read attachment {att.filename}: {e}")
+            else:
+                # Unknown file type – mention it in the question so the AI is aware
+                question += f"\n[User attached a file: {att.filename} ({att.content_type or 'unknown type'}) — cannot be read directly]"
+                print(f"[CHAT] Unsupported attachment skipped: {att.filename} ({att.content_type})")
 
         # Check for inline [context: ...] override
         inline_context = None
@@ -416,6 +560,7 @@ async def on_command_error(ctx: commands.Context, error):
                 custom_context=combined_context,
                 user_memory_context=mem.build_context_block(),
                 recent_messages=mem.build_recent_for_api(),
+                attachments=attachments_for_ai if attachments_for_ai else None,
             )
 
         await ctx.send(answer[:2000])

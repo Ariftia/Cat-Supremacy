@@ -1,7 +1,39 @@
 """Fetches cat GIFs and cat facts from public APIs."""
 
+import io
 import aiohttp
 import config
+
+
+def extract_pdf_text(pdf_bytes: bytes, max_chars: int = 8000) -> str:
+    """Extract text from a PDF byte stream using PyMuPDF.
+
+    Returns up to *max_chars* characters of text.  If the PDF contains
+    no extractable text (scanned image), returns an empty string.
+    """
+    import fitz  # PyMuPDF
+
+    text_parts: list[str] = []
+    total = 0
+    try:
+        with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+            for page_num, page in enumerate(doc, 1):
+                page_text = page.get_text()
+                if not page_text.strip():
+                    continue
+                header = f"--- Page {page_num} ---\n"
+                chunk = header + page_text
+                if total + len(chunk) > max_chars:
+                    remaining = max_chars - total
+                    if remaining > len(header):
+                        text_parts.append(chunk[:remaining])
+                    break
+                text_parts.append(chunk)
+                total += len(chunk)
+    except Exception as e:
+        print(f"[PDF] Failed to extract text: {e}")
+        return ""
+    return "\n".join(text_parts)
 
 
 async def fetch_cat_gif() -> str:
@@ -45,6 +77,8 @@ async def ask_cat(
     custom_context: str = None,
     user_memory_context: str = None,
     recent_messages: list[dict] = None,
+    attachments: list[dict] = None,
+    image_detail: str = "low",
 ) -> str:
     """Send a question to OpenAI ChatGPT and get a cat-themed answer.
 
@@ -58,6 +92,15 @@ async def ask_cat(
         Compact long-term memory notes about this specific user.
     recent_messages : list[dict], optional
         Rolling conversation history (list of ``{"role": ..., "content": ...}``).
+    attachments : list[dict], optional
+        List of attachment dicts with keys:
+        - ``"type"``: ``"image"`` or ``"text"``
+        - ``"url"``: image URL (for images)
+        - ``"filename"``: original filename
+        - ``"content"``: file text content (for text files)
+    image_detail : str
+        Vision detail level — ``"low"`` (default, cost-efficient) or
+        ``"high"`` (full resolution, better for reading text).
     """
     if not config.OPENAI_API_KEY:
         return "❌ OpenAI API key is not configured. Set `OPENAI_API_KEY` in your `.env` file."
@@ -90,11 +133,36 @@ async def ask_cat(
     messages = [{"role": "system", "content": system_content}]
     if recent_messages:
         messages.extend(recent_messages)
-    messages.append({"role": "user", "content": question})
+
+    # Build user content — simple string or multimodal parts list
+    if attachments:
+        user_content = []
+        # Add text part first
+        text_parts = [question] if question else []
+        for att in attachments:
+            if att["type"] == "text":
+                text_parts.append(f"\n[Attached file: {att['filename']}]\n{att['content']}")
+        if text_parts:
+            user_content.append({"type": "text", "text": "\n".join(text_parts)})
+        # Add image parts
+        for att in attachments:
+            if att["type"] == "image":
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": att["url"], "detail": image_detail},
+                })
+        messages.append({"role": "user", "content": user_content})
+    else:
+        messages.append({"role": "user", "content": question})
+
+    # Use gpt-5-mini for all requests (supports vision natively)
+    model = "gpt-5-mini"
+    has_images = attachments and any(a["type"] == "image" for a in attachments)
+    print(f"[API] ask_cat using model={model} | detail={image_detail if has_images else 'n/a'}")
 
     try:
         response = await client.chat.completions.create(
-            model="gpt-5-mini",
+            model=model,
             messages=messages,
             max_completion_tokens=10240,
             temperature=1,
