@@ -18,11 +18,15 @@ A Discord bot that posts **cat GIFs** and **cat facts** every morning, afternoon
 - **Inline context** — Override context on a per-message basis with `[context: ...]`
 
 ### 🧠 Memory System
-- **Per-user memory** — The bot remembers facts about you across conversations (name, preferences, interests, etc.)
+- **Per-user semantic memory** — Each user has independent vector-based long-term memory using ChromaDB and OpenAI embeddings
+- **Semantic search** — Retrieves the most relevant past memories for every conversation using cosine similarity on `text-embedding-3-small` embeddings
 - **Rolling conversation history** — Keeps the last 10 exchanges for natural conversational flow
-- **Automatic extraction** — Uses a lightweight AI model (`gpt-4.1-nano`) to extract and store important facts after each conversation
-- **Auto-pruning** — Memories older than 30 days are automatically cleaned up
-- **Persistent storage** — Memories survive bot restarts via `user_memories.json`
+- **Automatic extraction** — Uses a lightweight AI model (`gpt-4.1-nano`) to evaluate each message and extract important facts (preferences, hobbies, projects, goals, personality traits)
+- **Memory pruning** — Automatically limits memories to 150 per user; oldest entries are removed when the limit is exceeded
+- **Trivial message filtering** — Greetings and short questions are not stored
+- **Per-user isolation** — All vector searches are filtered by Discord user ID so no user can access another's memories
+- **Legacy migration** — Old flat-text memories are automatically migrated to the vector store on startup
+- **Persistent storage** — ChromaDB data persists to `data/chroma_data/`; conversation history persists to `data/user_conversations.json`
 
 ### 🔌 Free APIs
 - [TheCatAPI](https://thecatapi.com/) for cat GIFs
@@ -94,12 +98,14 @@ pip install -r requirements.txt
 | `discord.py` ≥ 2.3.0 | Discord bot framework |
 | `aiohttp` ≥ 3.9.0 | Async HTTP client for API calls |
 | `python-dotenv` ≥ 1.0.0 | Load `.env` configuration |
-| `openai` ≥ 1.0.0 | OpenAI API client (chat, search, image, memory) |
+| `openai` ≥ 1.0.0 | OpenAI API client (chat, embeddings, search, image, memory) |
+| `chromadb` ≥ 0.5.0 | Local vector database for semantic memory storage |
+| `pymupdf` ≥ 1.24.0 | PDF text extraction |
 
 ### 5. Run the Bot
 
 ```bash
-python bot.py
+python run.py
 ```
 
 The bot validates that `DISCORD_TOKEN` and `CAT_CHANNEL_ID` are set before starting, and will print an error message if either is missing.
@@ -146,26 +152,60 @@ This merges with any server-level context set via `@cat context`.
 
 ```
 Cat-Supremacy/
-├── bot.py              # Main entry point — commands, events & startup
-├── config.py           # Environment variables & schedule configuration
-├── cat_service.py      # External API calls (TheCatAPI, catfact.ninja, OpenAI)
-├── memory.py           # Per-user memory system (rolling + long-term + persistence)
-├── scheduler.py        # Scheduled daily posting logic (discord.ext.tasks)
-├── user_memories.json  # Persisted user memories (auto-generated at runtime)
-├── requirements.txt    # Python dependencies
-├── .env                # Your secrets (not committed to git)
-└── README.md           # This file
+├── run.py                    # Entry point — validates env, starts the bot
+├── config.py                 # All environment variables and tunables
+├── requirements.txt          # Python dependencies
+│
+├── bot/                      # Discord bot layer
+│   ├── __init__.py           # Creates and exports the Bot instance
+│   ├── events.py             # on_ready, on_command_error (chat fallback)
+│   ├── commands/             # One file per logical command group (Cogs)
+│   │   ├── __init__.py       # Registers all cogs on the bot
+│   │   ├── cat_content.py    # now, gif, fact, schedule
+│   │   ├── ai_chat.py        # detail, image, search, context, help_me
+│   │   └── memory_cmd.py     # memory view/clear/export/import
+│   └── helpers.py            # Shared utilities (attachment parsing, response splitting)
+│
+├── services/                 # External API integrations (all async, stateless)
+│   ├── __init__.py
+│   ├── cat_api.py            # fetch_cat_gif(), fetch_cat_fact()
+│   ├── openai_chat.py        # ask_cat() — builds prompt, calls chat model
+│   ├── openai_images.py      # generate_image()
+│   ├── openai_search.py      # search_web()
+│   ├── embedding.py          # generate_embedding(), generate_embeddings_batch()
+│   └── pdf.py                # extract_pdf_text()
+│
+├── memory/                   # Memory subsystem
+│   ├── __init__.py           # Re-exports public API
+│   ├── models.py             # Memory dataclass
+│   ├── vector_store.py       # ChromaDB CRUD: store, search, prune, delete
+│   ├── evaluator.py          # AI-driven memory extraction (evaluate & store)
+│   ├── conversation.py       # Rolling per-user conversation history (JSON persistence)
+│   └── prompt_builder.py     # format_memories_block(), build_system_prompt(), build_messages()
+│
+├── scheduler.py              # discord.ext.tasks scheduled posting
+│
+├── data/                     # Runtime data (git-ignored)
+│   ├── chroma_data/          # ChromaDB persistent storage
+│   └── user_conversations.json
+│
+├── ARCHITECTURE.md           # Architecture specification
+├── CONTEXT.md                # Project context for contributors / AI agents
+├── README.md                 # This file
+├── .env                      # Your secrets (not committed to git)
+└── .gitignore
 ```
 
 ### Module Overview
 
 | Module | Responsibility |
 |--------|---------------|
-| [bot.py](bot.py) | Bot initialization, command handlers, AI chat fallback via `on_command_error`, per-server custom context store |
-| [config.py](config.py) | Loads `.env` variables, defines schedule hours, API endpoints, and embed colors |
-| [cat_service.py](cat_service.py) | `fetch_cat_gif()`, `fetch_cat_fact()`, `ask_cat()`, `search_web()`, `generate_image()` — all async |
-| [memory.py](memory.py) | `UserMemory` dataclass, rolling conversation window, long-term notes, AI-driven extraction, JSON persistence |
-| [scheduler.py](scheduler.py) | `discord.ext.tasks` loop that fires at configured UTC times, builds and posts scheduled messages |
+| `run.py` | Entry point — validates environment and starts the bot |
+| `config.py` | Loads `.env` variables, defines schedule hours, API endpoints, memory settings |
+| `bot/` | Discord layer — events, command handlers (Cogs), helpers |
+| `services/` | Stateless external API integrations (TheCatAPI, OpenAI chat/images/search/embeddings, PDF) |
+| `memory/` | Per-user vector memory (ChromaDB), conversation history, prompt assembly |
+| `scheduler.py` | `discord.ext.tasks` loop that fires at configured UTC times |
 
 ---
 
@@ -198,10 +238,87 @@ OpenAI API calls also log **token usage** (prompt / completion / total) so you c
 
 | Feature | Model | Notes |
 |---------|-------|-------|
-| AI Chat | `gpt-5-mini` | Main conversational model with cat personality |
+| AI Chat | `gpt-4.1-mini` | Main conversational model with cat personality |
 | Web Search | `gpt-4.1-mini` | Uses `web_search_preview` tool |
-| Memory Extraction | `gpt-4.1-nano` | Cheapest model — extraction is simple |
-| Image Generation | `dall-e-3` | 1024×1024 standard quality |
+| Memory Extraction | `gpt-4.1-nano` | Evaluates messages and extracts long-term facts |
+| Embeddings | `text-embedding-3-small` | 1536-dim vectors for semantic memory search |
+| Image Generation | `gpt-image-1` | 1024×1024 standard quality |
+
+> Models are configurable via environment variables `CHAT_MODEL`, `EXTRACTION_MODEL`, and `EMBEDDING_MODEL`.
+
+---
+
+## Memory Pipeline
+
+The vector memory system works as follows for every user message:
+
+```
+User sends message
+        │
+        ▼
+┌─────────────────────────────┐
+│ 1. Identify Discord user ID │  ← namespace for memory isolation
+└─────────────────────────────┘
+        │
+        ▼
+┌─────────────────────────────────────┐
+│ 2. Generate embedding for message   │  ← text-embedding-3-small
+│    (services/embedding.py)          │
+└─────────────────────────────────────┘
+        │
+        ▼
+┌──────────────────────────────────────────┐
+│ 3. Semantic search in ChromaDB           │  ← filtered by user_id
+│    Retrieve top 5 most relevant memories │
+│    (memory/vector_store.py)              │
+└──────────────────────────────────────────┘
+        │
+        ▼
+┌──────────────────────────────────────────────┐
+│ 4. Build prompt with [User Memories] section │
+│    (memory/prompt_builder.py)                │
+└──────────────────────────────────────────────┘
+        │
+        ▼
+┌──────────────────────────────────────┐
+│ 5. Send to chat model, get response  │
+│    (services/openai_chat.py)         │
+└──────────────────────────────────────┘
+        │
+        ▼
+┌────────────────────────────────────────────────┐
+│ 6. Evaluate if message has important long-term │
+│    info (gpt-4.1-nano). If yes, generate       │
+│    summary memories, embed, and store in       │
+│    ChromaDB with user_id + timestamp + category│
+│    (memory/evaluator.py)                       │
+└────────────────────────────────────────────────┘
+```
+
+### Memory Categories
+
+Stored memories are tagged with a category:
+
+| Category | Example |
+|----------|---------|
+| `preference` | "User prefers concise technical explanations" |
+| `hobby` | "User enjoys woodworking and 3D printing" |
+| `project` | "User is building an ESP32 hydroponic monitoring system" |
+| `fact` | "User's name is Alex and they live in Berlin" |
+| `personality` | "User has a sarcastic sense of humor" |
+| `goal` | "User is preparing for a Python certification exam" |
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EMBEDDING_MODEL` | `text-embedding-3-small` | OpenAI embedding model |
+| `EMBEDDING_DIMENSIONS` | `1536` | Embedding vector dimensions |
+| `CHROMA_PERSIST_DIR` | `./data/chroma_data` | ChromaDB storage directory |
+| `MEMORY_TOP_K` | `5` | Memories retrieved per query |
+| `MAX_MEMORIES_PER_USER` | `150` | Maximum memories before pruning |
+| `CHAT_MODEL` | `gpt-4.1-mini` | Chat model for conversations |
+| `EXTRACTION_MODEL` | `gpt-4.1-nano` | Model for memory extraction |
 
 ---
 

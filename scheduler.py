@@ -5,28 +5,24 @@ import discord
 from discord.ext import tasks
 
 import config
-from cat_service import fetch_cat_gif, fetch_cat_fact, ask_cat
+from services.cat_api import fetch_cat_gif, fetch_cat_fact
+from services.openai_chat import ask_cat
 
-# ── Greeting map ─────────────────────────────────────────
+# ── Default greeting templates ───────────────────────────
+_SLOT_TEMPLATES = {
+    "morning":   {"greeting": "Good Morning",   "emoji": "🌅",
+                  "message": "Rise and shine, cat lovers! Here's your morning dose of whiskers:"},
+    "afternoon": {"greeting": "Good Afternoon", "emoji": "☀️",
+                  "message": "Afternoon paws! Time for a mid-day cat break:"},
+    "evening":   {"greeting": "Good Evening",   "emoji": "🌙",
+                  "message": "Evening vibes! Curl up with this cozy cat content:"},
+}
+
+# ── Module-level defaults (used by @cat now and @cat schedule) ──
 TIME_OF_DAY = {
-    config.MORNING_HOUR: {
-        "greeting": "Good Morning",
-        "emoji": "🌅",
-        "color": config.MORNING_COLOR,
-        "message": "Rise and shine, cat lovers! Here's your morning dose of whiskers:",
-    },
-    config.AFTERNOON_HOUR: {
-        "greeting": "Good Afternoon",
-        "emoji": "☀️",
-        "color": config.AFTERNOON_COLOR,
-        "message": "Afternoon paws! Time for a mid-day cat break:",
-    },
-    config.EVENING_HOUR: {
-        "greeting": "Good Evening",
-        "emoji": "🌙",
-        "color": config.EVENING_COLOR,
-        "message": "Evening vibes! Curl up with this cozy cat content:",
-    },
+    config.MORNING_HOUR: {**_SLOT_TEMPLATES["morning"], "color": config.MORNING_COLOR},
+    config.AFTERNOON_HOUR: {**_SLOT_TEMPLATES["afternoon"], "color": config.AFTERNOON_COLOR},
+    config.EVENING_HOUR: {**_SLOT_TEMPLATES["evening"], "color": config.EVENING_COLOR},
 }
 
 # ── Schedule times (UTC) ─────────────────────────────────
@@ -37,15 +33,31 @@ SCHEDULE_TIMES = [
 ]
 
 
-def _current_slot() -> dict:
+def _build_time_of_day(guild_id: int | None = None) -> dict[int, dict]:
+    """Build a TIME_OF_DAY map using per-guild settings if available."""
+    if guild_id is None:
+        return TIME_OF_DAY
+    from memory.guild_settings import get as gs_get
+    morning_h = gs_get(guild_id, "morning_hour")
+    afternoon_h = gs_get(guild_id, "afternoon_hour")
+    evening_h = gs_get(guild_id, "evening_hour")
+    return {
+        morning_h:   {**_SLOT_TEMPLATES["morning"],   "color": gs_get(guild_id, "morning_color")},
+        afternoon_h: {**_SLOT_TEMPLATES["afternoon"], "color": gs_get(guild_id, "afternoon_color")},
+        evening_h:   {**_SLOT_TEMPLATES["evening"],   "color": gs_get(guild_id, "evening_color")},
+    }
+
+
+def _current_slot(guild_id: int | None = None) -> dict:
     """Return the greeting slot for the current UTC hour."""
+    tod = _build_time_of_day(guild_id)
     now_hour = datetime.datetime.now(datetime.timezone.utc).hour
     print(f"[SCHED] Determining slot for UTC hour {now_hour}")
     # Find the closest slot that has already started
-    for hour in sorted(TIME_OF_DAY.keys(), reverse=True):
+    for hour in sorted(tod.keys(), reverse=True):
         if now_hour >= hour:
-            return TIME_OF_DAY[hour]
-    return TIME_OF_DAY[config.MORNING_HOUR]
+            return tod[hour]
+    return list(tod.values())[0]
 
 
 async def _build_embed(slot: dict) -> tuple[discord.Embed, str]:
@@ -88,17 +100,24 @@ def setup_scheduled_tasks(bot: discord.Client):
     @tasks.loop(time=SCHEDULE_TIMES)
     async def post_cat_content():
         print("[SCHED] Scheduled post triggered")
-        channel = bot.get_channel(config.CAT_CHANNEL_ID)
-        if channel is None:
-            print(f"[WARNING] Channel {config.CAT_CHANNEL_ID} not found. Skipping post.")
-            return
-
-        slot = _current_slot()
-        greeting, fact, gif_url = await _build_scheduled_messages(slot)
-        await channel.send(greeting[:2000])
-        await channel.send(fact[:2000])
-        await channel.send(gif_url)
-        print(f"[SCHED] Posted {slot['greeting']} cat content to #{channel.name}!")
+        # Resolve channel — check guild overrides for each guild the bot is in
+        from memory.guild_settings import get as gs_get
+        channels_posted = set()
+        for guild in bot.guilds:
+            ch_id = gs_get(guild.id, "cat_channel_id")
+            if ch_id in channels_posted:
+                continue
+            channel = bot.get_channel(ch_id)
+            if channel is None:
+                print(f"[WARNING] Channel {ch_id} not found for guild {guild.id}. Skipping.")
+                continue
+            channels_posted.add(ch_id)
+            slot = _current_slot(guild_id=guild.id)
+            greeting, fact, gif_url = await _build_scheduled_messages(slot)
+            await channel.send(greeting[:2000])
+            await channel.send(fact[:2000])
+            await channel.send(gif_url)
+            print(f"[SCHED] Posted {slot['greeting']} cat content to #{channel.name} (guild {guild.id})")
 
     @post_cat_content.before_loop
     async def before_post():

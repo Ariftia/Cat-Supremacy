@@ -6,3 +6,5 @@ __pycache__/
 venv/
 .venv/
 user_memories.json
+data/
+chroma_data/
